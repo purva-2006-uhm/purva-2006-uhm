@@ -13,6 +13,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - name: Generate GitHub Contribution Snake
         uses: Platane/snk@v3
         with:
@@ -21,10 +26,39 @@ jobs:
             dist/github-snake.svg
             dist/github-snake-dark.svg?palette=github-dark
 
-      - name: Push to output branch
-        uses: crazy-max/ghaction-github-pages@v4
-        with:
-          target_branch: output
-          build_dir: dist
+      - name: Publish snake files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          repo="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if git ls-remote --exit-code --heads "$repo" output; then
+            git clone --depth=1 --branch output "$repo" output-branch
+          else
+            git clone --depth=1 "$repo" output-branch
+            cd output-branch
+            git switch --orphan output
+            git rm -rf . || true
+            find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+            cd ..
+          fi
+
+          cp dist/github-snake.svg output-branch/github-snake.svg
+          cp dist/github-snake-dark.svg output-branch/github-snake-dark.svg
+          touch output-branch/.nojekyll
+
+          cd output-branch
+          git add github-snake.svg github-snake-dark.svg .nojekyll
+
+          if git diff --cached --quiet; then
+            echo "No changes to publish"
+            exit 0
+          fi
+
+          git commit -m "Update contribution snake"
+          git push origin output
